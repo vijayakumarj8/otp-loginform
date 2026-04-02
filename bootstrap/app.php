@@ -13,16 +13,24 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
 
-        // Keep your existing
+        // Redirect guests
         $middleware->redirectGuestsTo('/login');
-        // $middleware->redirectGuestsTo(fn () => null);
 
-        //  ADD THIS FOR SANCTUM (important for SPA, optional for Postman)
+        // Sanctum middleware for API
         $middleware->api(prepend: [
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+        ]);
+
+        // Custom middleware aliases
+        $middleware->alias([
+            'otp.valid' => \App\Http\Middleware\CheckOtpValidity::class,
+            'auth' => \App\Http\Middleware\RedirectIfAuthenticatedCustom::class,
+            'api.key' => \App\Http\Middleware\ApiKeyMiddleware::class,
+
         ]);
 
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
-    })->create();
+    })
+    ->create();

@@ -6,13 +6,16 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class ApiController extends Controller
 {
-    // SEND OTP
+   
     public function sendOtp(Request $request)
     {
+        Log::info('SEND OTP REQUEST', $request->all());
+
         $request->validate([
             'email' => 'required|email',
             'password' => 'required'
@@ -20,31 +23,42 @@ class ApiController extends Controller
 
         $user = User::where('email', $request->email)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)){
+        if (!$user || !Hash::check($request->password, $user->password)) {
+
+            Log::warning('SEND OTP FAILED - INVALID CREDENTIALS', [
+                'email' => $request->email
+            ]);
+
             return response()->json([
                 'status' => false,
                 'message' => 'Invalid email or password'
             ], 401);
         }
 
-        //  Generate random OTP
-        $otp = 123456; // for testing, replace with random generator in production
-        // $otp = rand(100000, 999999);
+        // OTP (for testing)
+        $otp = 123456;
 
         $user->otp = $otp;
         $user->otp_expires_at = Carbon::now()->addMinutes(5);
         $user->save();
 
+        Log::info('OTP GENERATED', [
+            'email' => $user->email,
+            'otp' => $otp
+        ]);
+
         return response()->json([
             'status' => true,
             'message' => 'OTP sent successfully',
-            'otp' => $otp // ⚠️ REMOVE in production
+            'otp' => $otp // remove in production
         ]);
     }
 
-    //  LOGIN WITH OTP + TOKEN
+    
     public function loginWithOtp(Request $request)
     {
+        Log::info('LOGIN OTP REQUEST', $request->all());
+
         $request->validate([
             'email' => 'required|email',
             'otp' => 'required'
@@ -53,6 +67,11 @@ class ApiController extends Controller
         $user = User::where('email', $request->email)->first();
 
         if (!$user) {
+
+            Log::warning('LOGIN FAILED - USER NOT FOUND', [
+                'email' => $request->email
+            ]);
+
             return response()->json([
                 'status' => false,
                 'message' => 'User not found'
@@ -64,10 +83,15 @@ class ApiController extends Controller
 
         if ($otpMatch && $notExpired) {
 
-            //  Create Sanctum Token
+            // Create token
             $token = $user->createToken('api-token')->plainTextToken;
 
-            // clear OTP
+            Log::info('LOGIN SUCCESS', [
+                'email' => $user->email,
+                'token' => $token
+            ]);
+
+            // Clear OTP
             $user->otp = null;
             $user->otp_expires_at = null;
             $user->save();
@@ -80,24 +104,43 @@ class ApiController extends Controller
             ]);
         }
 
+        Log::warning('LOGIN FAILED - INVALID OTP', [
+            'email' => $request->email
+        ]);
+
         return response()->json([
             'status' => false,
             'message' => 'Invalid or expired OTP'
         ], 401);
     }
 
-    // RESET PASSWORD (Protected)
     public function resetPassword(Request $request)
     {
+        Log::info('RESET PASSWORD REQUEST', $request->all());
+
         $request->validate([
             'current_password' => 'required',
             'new_password' => 'required|min:6',
             'confirm_password' => 'required|same:new_password',
         ]);
 
-        $user = Auth::user(); //  from token
+        $user = Auth::user();
+
+        if (!$user) {
+            Log::error('RESET PASSWORD FAILED - USER NULL');
+
+            return response()->json([
+                'status' => false,
+                'message' => 'User not authenticated'
+            ], 401);
+        }
 
         if (!Hash::check($request->current_password, $user->password)) {
+
+            Log::warning('RESET PASSWORD FAILED - WRONG OLD PASSWORD', [
+                'email' => $user->email
+            ]);
+
             return response()->json([
                 'status' => false,
                 'message' => 'Old password incorrect'
@@ -107,15 +150,22 @@ class ApiController extends Controller
         $user->password = Hash::make($request->new_password);
         $user->save();
 
+        Log::info('PASSWORD UPDATED', [
+            'email' => $user->email
+        ]);
+
         return response()->json([
             'status' => true,
             'message' => 'Password updated successfully'
         ]);
     }
 
-    //  LOGOUT (Protected)
     public function logout(Request $request)
     {
+        Log::info('LOGOUT REQUEST', [
+            'user' => $request->user()
+        ]);
+
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([
